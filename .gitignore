@@ -1,0 +1,4 @@
+measurements.txt
+zig-out
+zig-cache
+perf.data*
