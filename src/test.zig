@@ -17,7 +17,8 @@ fn testFile(comptime path: []const u8) !void {
     defer output_file.close();
     errdefer cwd.deleteFile(output_path) catch unreachable;
 
-    try work(input_file, &output_file);
+    try work(input_file, &output_file, std.testing.allocator);
+    try output_file.seekTo(0);
 
     var expected_buffered = std.io.bufferedReader(expected_file.reader());
     var expected_reader = expected_buffered.reader();
