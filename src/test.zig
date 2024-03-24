@@ -22,27 +22,23 @@ fn testFile(comptime path: []const u8) !void {
 
     var expected_buffered = std.io.bufferedReader(expected_file.reader());
     var expected_reader = expected_buffered.reader();
+    var expected = std.ArrayList(u8).init(std.testing.allocator);
+    defer expected.deinit();
 
     var output_buffered = std.io.bufferedReader(output_file.reader());
     var output_reader = output_buffered.reader();
+    var output = std.ArrayList(u8).init(std.testing.allocator);
+    defer output.deinit();
 
-    while (true) {
-        var expected = std.ArrayList(u8).init(std.testing.allocator);
-        defer expected.deinit();
-        const expected_err = expected_reader.streamUntilDelimiter(expected.writer(), ',', null);
+    while (expected_reader.streamUntilDelimiter(expected.writer(), ',', null)) {
+        defer output.clearRetainingCapacity();
+        defer expected.clearRetainingCapacity();
 
-        var output = std.ArrayList(u8).init(std.testing.allocator);
-        defer output.deinit();
-
-        output_reader.streamUntilDelimiter(output.writer(), ',', null) catch |err| switch (err) {
-            error.EndOfStream => {
-                const end_of_expected = expected.items.len == 0 and expected_err == error.EndOfStream;
-                if (end_of_expected and output.items.len == 0) break;
-            },
-            else => |e| return e,
-        };
-
+        try output_reader.streamUntilDelimiter(output.writer(), ',', null);
         try std.testing.expectEqualSlices(u8, expected.items, output.items);
+    } else |err| switch (err) {
+        error.EndOfStream => {},
+        else => return err,
     }
 
     try cwd.deleteFile(output_path);
