@@ -1,9 +1,8 @@
 const std = @import("std");
 
-// this runs in 182.53s for the one billion lines file
+// this runs in 108.83s for the one billion lines file
 pub fn work(input: std.fs.File, output_file: *std.fs.File, allocator: std.mem.Allocator) !void {
     var br = std.io.bufferedReader(input.reader());
-    var reader = br.reader();
 
     var map = std.StringArrayHashMap(StationInfo).init(allocator);
     defer {
@@ -11,16 +10,12 @@ pub fn work(input: std.fs.File, output_file: *std.fs.File, allocator: std.mem.Al
         map.deinit();
     }
 
-    var line = std.ArrayList(u8).init(allocator);
-    defer line.deinit();
-    var line_writer = line.writer();
+    var line_buf: [128]u8 = undefined;
 
-    while (reader.streamUntilDelimiter(line_writer, '\n', null)) {
-        defer line.clearRetainingCapacity();
-
-        const pivot = std.mem.indexOf(u8, line.items, ";") orelse @panic("malformed input file");
-        const station_name = line.items[0..pivot];
-        const temperature = try std.fmt.parseFloat(f16, line.items[pivot + 1 ..]);
+    while (try readLine(&br, '\n', &line_buf)) |line| {
+        const pivot = std.mem.indexOf(u8, line, ";").?;
+        const station_name = line[0..pivot];
+        const temperature = try std.fmt.parseFloat(f16, line[pivot + 1 ..]);
 
         var entry = try map.getOrPut(station_name);
 
@@ -35,9 +30,6 @@ pub fn work(input: std.fs.File, output_file: *std.fs.File, allocator: std.mem.Al
             entry.key_ptr.* = try allocator.dupe(u8, station_name);
             entry.value_ptr.* = .{ .min = temperature, .max = temperature, .sum = temperature, .count = 1 };
         }
-    } else |err| switch (err) {
-        error.EndOfStream => {},
-        else => return err,
     }
 
     const Ctx = struct {
@@ -61,7 +53,7 @@ pub fn work(input: std.fs.File, output_file: *std.fs.File, allocator: std.mem.Al
         const average = station.sum / @as(f16, @floatFromInt(station.count));
 
         if (i != 0)
-            try std.fmt.format(writer, "{s}", .{", "});
+            try writer.writeAll(", ");
 
         try std.fmt.format(
             writer,
@@ -72,6 +64,44 @@ pub fn work(input: std.fs.File, output_file: *std.fs.File, allocator: std.mem.Al
 
     try writer.writeAll("}\n");
     try bw.flush();
+}
+
+/// a nice optimization done by the zul library
+/// https://github.com/karlseguin/zul/blob/master/src/fs.zig#L27
+fn readLine(reader: *std.io.BufferedReader(4096, std.fs.File.Reader), delimiter: u8, buf: []u8) !?[]u8 {
+    var written: usize = 0;
+
+    while (true) {
+        const start = reader.start;
+
+        if (std.mem.indexOfScalar(u8, reader.buf[start..reader.end], delimiter)) |index| {
+            const written_end = written + index;
+            if (written_end > buf.len) return error.StreamTooLong;
+
+            const delimiter_index = start + index;
+
+            if (written == 0) {
+                reader.start = delimiter_index + 1;
+                return reader.buf[start..delimiter_index];
+            } else {
+                @memcpy(buf[written..written_end], reader.buf[start..delimiter_index]);
+                reader.start = delimiter_index + 1;
+                return buf[0..written_end];
+            }
+        } else {
+            const written_end = written + reader.end - start;
+            if (written_end > buf.len) return error.StreamTooLong;
+
+            @memcpy(buf[written..written_end], reader.buf[start..reader.end]);
+            written = written_end;
+
+            const n = try reader.unbuffered_reader.read(reader.buf[0..]);
+            if (n == 0) return null;
+
+            reader.start = 0;
+            reader.end = n;
+        }
+    }
 }
 
 const StationInfo = struct { min: f16, max: f16, sum: f16, count: usize };
