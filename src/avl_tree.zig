@@ -3,36 +3,63 @@ const std = @import("std");
 pub fn AvlTree(comptime T: type, comptime Context: type) type {
     return struct {
         const Self = @This();
+        const Node = AvlTreeUnmanaged(T, Context);
+
+        root: ?*Node = null,
+        allocator: std.mem.Allocator,
+
+        pub fn init(allocator: std.mem.Allocator) Self {
+            return .{ .allocator = allocator };
+        }
+
+        pub fn deinit(self: *Self) void {
+            if (self.root) |root|
+                root.deinit(self.allocator);
+
+            self.root = null;
+        }
+
+        pub fn insert(self: *Self, value: T) !void {
+            self.root = try Node.insert_r(self.root, value, self.allocator);
+        }
+
+        pub fn get(self: *const Self, value: T) ?*T {
+            if (Node.get_r(self.root, value)) |node|
+                return &node.value;
+
+            return null;
+        }
+
+        pub fn iterator(self: *Self) Node.Iterator {
+            return Node.iterator(self.root);
+        }
+    };
+}
+
+pub fn AvlTreeUnmanaged(comptime T: type, comptime Context: type) type {
+    return struct {
+        const Self = @This();
         const Iterator = InOrderIterator(Self, T);
 
         value: T,
         height: i32 = 1,
         left: ?*Self = null,
         right: ?*Self = null,
-        allocator: std.mem.Allocator,
 
         pub fn init(value: T, allocator: std.mem.Allocator) !*Self {
             const node = try allocator.create(Self);
-            node.* = .{ .value = value, .allocator = allocator };
+            node.* = .{ .value = value };
             return node;
         }
 
-        pub fn deinit(self: *Self) void {
-            if (self.left) |left| left.deinit();
-            if (self.right) |right| right.deinit();
-            self.allocator.destroy(self);
+        pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
+            if (self.left) |left| left.deinit(allocator);
+            if (self.right) |right| right.deinit(allocator);
+            allocator.destroy(self);
         }
 
-        pub fn insert(self: *Self, value: T) !void {
-            _ = try insert_r(self, value, self.allocator);
-        }
-
-        pub fn get(self: *Self, value: T) ?*T {
-            if (get_r(self, value)) |node| {
-                return &node.value;
-            }
-
-            return null;
+        pub fn iterator(self: ?*Self) Iterator {
+            return .{ .current = self, .right_most = null };
         }
 
         fn get_r(root: ?*Self, value: T) ?*Self {
@@ -45,10 +72,6 @@ pub fn AvlTree(comptime T: type, comptime Context: type) type {
             } else {
                 return null;
             }
-        }
-
-        pub fn iterator(self: *Self) Iterator {
-            return .{ .current = self, .right_most = null };
         }
 
         fn insert_r(root: ?*Self, value: T, allocator: std.mem.Allocator) !*Self {
@@ -171,13 +194,16 @@ test "small tree" {
 
     const IntegerTree = AvlTree(i32, Context);
 
-    var root = try IntegerTree.init(20, std.testing.allocator);
-    defer root.deinit();
+    var tree = IntegerTree.init(std.testing.allocator);
+    defer tree.deinit();
 
+    try tree.insert(20);
     // depth 1
-    try root.insert(4);
+    try tree.insert(4);
     // depth 2
-    try root.insert(15);
+    try tree.insert(15);
+
+    const root = tree.root.?;
 
     try std.testing.expectEqual(@as(i32, 15), root.value);
     try std.testing.expectEqual(@as(i32, 0), root.balanceFactor());
@@ -198,17 +224,20 @@ test "medium tree" {
 
     const IntegerTree = AvlTree(i32, Context);
 
-    var root = try IntegerTree.init(20, std.testing.allocator);
-    defer root.deinit();
+    var tree = IntegerTree.init(std.testing.allocator);
+    defer tree.deinit();
 
+    try tree.insert(20);
     // depth 1
-    try root.insert(4);
-    try root.insert(26);
+    try tree.insert(4);
+    try tree.insert(26);
     // depth 2
-    try root.insert(3);
-    try root.insert(9);
+    try tree.insert(3);
+    try tree.insert(9);
     // depth 3
-    try root.insert(15);
+    try tree.insert(15);
+
+    const root = tree.root.?;
 
     try std.testing.expectEqual(@as(i32, 9), root.value);
 
@@ -230,23 +259,26 @@ test "big tree" {
 
     const IntegerTree = AvlTree(i32, Context);
 
-    var root = try IntegerTree.init(20, std.testing.allocator);
-    defer root.deinit();
+    var tree = IntegerTree.init(std.testing.allocator);
+    defer tree.deinit();
 
+    try tree.insert(20);
     // depth 1
-    try root.insert(4);
-    try root.insert(26);
+    try tree.insert(4);
+    try tree.insert(26);
     // depth 2
-    try root.insert(3);
-    try root.insert(9);
-    try root.insert(21);
-    try root.insert(30);
+    try tree.insert(3);
+    try tree.insert(9);
+    try tree.insert(21);
+    try tree.insert(30);
     // depth 3
-    try root.insert(2);
-    try root.insert(7);
-    try root.insert(11);
+    try tree.insert(2);
+    try tree.insert(7);
+    try tree.insert(11);
     // depth 4
-    try root.insert(15);
+    try tree.insert(15);
+
+    const root = tree.root.?;
 
     try std.testing.expectEqual(@as(i32, 9), root.value);
 
@@ -276,29 +308,30 @@ test "retrival and iteration" {
 
     const IntegerTree = AvlTree(i32, Context);
 
-    var root = try IntegerTree.init(20, std.testing.allocator);
-    defer root.deinit();
+    var tree = IntegerTree.init(std.testing.allocator);
+    defer tree.deinit();
 
+    try tree.insert(20);
     // depth 1
-    try root.insert(4);
-    try root.insert(26);
+    try tree.insert(4);
+    try tree.insert(26);
     // depth 2
-    try root.insert(3);
-    try root.insert(9);
+    try tree.insert(3);
+    try tree.insert(9);
 
-    const value1 = root.get(20);
+    const value1 = tree.get(20);
     try std.testing.expectEqual(@as(i32, 20), value1.?.*);
 
-    const value2 = root.get(4);
+    const value2 = tree.get(4);
     try std.testing.expectEqual(@as(i32, 4), value2.?.*);
 
-    const value3 = root.get(26);
+    const value3 = tree.get(26);
     try std.testing.expectEqual(@as(i32, 26), value3.?.*);
 
-    const value4 = root.get(5);
+    const value4 = tree.get(5);
     try std.testing.expect(value4 == null);
 
-    var it = root.iterator();
+    var it = tree.iterator();
     var buf: [5]i32 = undefined;
 
     var index: usize = 0;

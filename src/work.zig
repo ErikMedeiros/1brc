@@ -6,11 +6,11 @@ const BreathFirstIterator = @import("avl_tree.zig").BreathFirstIterator;
 pub fn work(input: std.fs.File, output_file: *std.fs.File, allocator: std.mem.Allocator) !void {
     var br = std.io.bufferedReader(input.reader());
 
-    var root: ?*StationTree = null;
+    var tree = StationTree.init(allocator);
     defer {
-        var it = root.?.iterator();
+        var it = tree.iterator();
         while (it.next()) |station| allocator.free(station.name);
-        root.?.deinit();
+        tree.deinit();
     }
 
     var line_buf: [128]u8 = undefined;
@@ -20,7 +20,7 @@ pub fn work(input: std.fs.File, output_file: *std.fs.File, allocator: std.mem.Al
         const station_name = line[0..pivot];
         const temperature = try std.fmt.parseFloat(f16, line[pivot + 1 ..]);
 
-        var entry = if (root == null) null else root.?.get(.{ .name = station_name });
+        var entry = tree.get(.{ .name = station_name });
 
         if (entry) |*ptr| {
             const station = ptr.*;
@@ -33,11 +33,7 @@ pub fn work(input: std.fs.File, output_file: *std.fs.File, allocator: std.mem.Al
             const name = try allocator.dupe(u8, station_name);
             const station = .{ .name = name, .min = temperature, .max = temperature, .sum = temperature, .count = 1 };
 
-            if (root == null) {
-                root = try StationTree.init(station, allocator);
-            } else {
-                try root.?.insert(station);
-            }
+            try tree.insert(station);
         }
     }
 
@@ -45,7 +41,7 @@ pub fn work(input: std.fs.File, output_file: *std.fs.File, allocator: std.mem.Al
     var writer = bw.writer();
     try writer.writeAll("{");
 
-    var iterator = root.?.iterator();
+    var iterator = tree.iterator();
 
     var index: usize = 0;
     while (iterator.next()) |station| : (index += 1) {
