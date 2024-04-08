@@ -1,13 +1,16 @@
 const std = @import("std");
+const AvlTree = @import("avl_tree.zig").AvlTree;
+const BreathFirstIterator = @import("avl_tree.zig").BreathFirstIterator;
 
-// this runs in 108.83s for the one billion lines file
+// this runs in 286s for the one billion lines file
 pub fn work(input: std.fs.File, output_file: *std.fs.File, allocator: std.mem.Allocator) !void {
     var br = std.io.bufferedReader(input.reader());
 
-    var map = std.StringArrayHashMap(StationInfo).init(allocator);
+    var root: ?*StationTree = null;
     defer {
-        for (map.keys()) |key| allocator.free(key);
-        map.deinit();
+        var it = root.?.iterator();
+        while (it.next()) |station| allocator.free(station.name);
+        root.?.deinit();
     }
 
     var line_buf: [128]u8 = undefined;
@@ -17,48 +20,44 @@ pub fn work(input: std.fs.File, output_file: *std.fs.File, allocator: std.mem.Al
         const station_name = line[0..pivot];
         const temperature = try std.fmt.parseFloat(f16, line[pivot + 1 ..]);
 
-        var entry = try map.getOrPut(station_name);
+        var entry = if (root == null) null else root.?.get(.{ .name = station_name });
 
-        if (entry.found_existing) {
-            var station = entry.value_ptr;
+        if (entry) |*ptr| {
+            const station = ptr.*;
             station.sum += temperature;
             station.count += 1;
 
             station.min = @min(station.min, temperature);
             station.max = @max(station.max, temperature);
         } else {
-            entry.key_ptr.* = try allocator.dupe(u8, station_name);
-            entry.value_ptr.* = .{ .min = temperature, .max = temperature, .sum = temperature, .count = 1 };
+            const name = try allocator.dupe(u8, station_name);
+            const station = .{ .name = name, .min = temperature, .max = temperature, .sum = temperature, .count = 1 };
+
+            if (root == null) {
+                root = try StationTree.init(station, allocator);
+            } else {
+                try root.?.insert(station);
+            }
         }
     }
-
-    const Ctx = struct {
-        items: [][]const u8,
-
-        pub fn lessThan(ctx: @This(), a_index: usize, b_index: usize) bool {
-            const a = ctx.items[a_index];
-            const b = ctx.items[b_index];
-            return std.mem.order(u8, a, b).compare(std.math.CompareOperator.lt);
-        }
-    };
-
-    map.sort(Ctx{ .items = map.keys() });
 
     var bw = std.io.bufferedWriter(output_file.writer());
     var writer = bw.writer();
     try writer.writeAll("{");
 
-    for (map.keys(), 0..) |station_name, i| {
-        const station = map.get(station_name).?;
+    var iterator = root.?.iterator();
+
+    var index: usize = 0;
+    while (iterator.next()) |station| : (index += 1) {
         const average = station.sum / @as(f16, @floatFromInt(station.count));
 
-        if (i != 0)
+        if (index != 0)
             try writer.writeAll(", ");
 
         try std.fmt.format(
             writer,
             "{s}={d:.1}/{d:.1}/{d:.1}",
-            .{ station_name, station.min, average, station.max },
+            .{ station.name, station.min, average, station.max },
         );
     }
 
@@ -104,4 +103,18 @@ fn readLine(reader: *std.io.BufferedReader(4096, std.fs.File.Reader), delimiter:
     }
 }
 
-const StationInfo = struct { min: f16, max: f16, sum: f16, count: usize };
+const StationInfo = struct {
+    name: []const u8,
+    min: f16 = undefined,
+    max: f16 = undefined,
+    sum: f16 = undefined,
+    count: usize = undefined,
+};
+
+const StationContext = struct {
+    pub fn compare(a: StationInfo, b: StationInfo) std.math.Order {
+        return std.mem.order(u8, a.name, b.name);
+    }
+};
+
+const StationTree = AvlTree(StationInfo, StationContext);
