@@ -44,6 +44,10 @@ fn testFile(comptime path: []const u8) !void {
     try cwd.deleteFile(output_path);
 }
 
+test {
+    _ = @import("avl_tree.zig");
+}
+
 test "samples/measurements-short.txt" {
     try testFile("samples/measurements-short");
 }

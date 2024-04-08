@@ -6,9 +6,9 @@ pub fn AvlTree(comptime T: type, comptime Context: type) type {
         const Iterator = InOrderIterator(Self, T);
 
         value: T,
+        height: i32 = 1,
         left: ?*Self = null,
         right: ?*Self = null,
-        balanceFactor: i32 = 0,
         allocator: std.mem.Allocator,
 
         pub fn init(value: T, allocator: std.mem.Allocator) !*Self {
@@ -54,25 +54,19 @@ pub fn AvlTree(comptime T: type, comptime Context: type) type {
         fn insert_r(root: ?*Self, value: T, allocator: std.mem.Allocator) !*Self {
             if (root) |node| {
                 switch (Context.compare(value, node.value)) {
-                    .lt => {
-                        if (node.left == null) node.balanceFactor -= 1;
-                        node.left = try insert_r(node.left, value, allocator);
-                        node.balanceFactor -= try std.math.absInt(node.left.?.balanceFactor);
-                    },
+                    .lt => node.left = try insert_r(node.left, value, allocator),
                     .eq => return node,
-                    .gt => {
-                        if (node.right == null) node.balanceFactor += 1;
-                        node.right = try insert_r(node.right, value, allocator);
-                        node.balanceFactor += try std.math.absInt(node.right.?.balanceFactor);
-                    },
+                    .gt => node.right = try insert_r(node.right, value, allocator),
                 }
 
-                if (node.balanceFactor == -2) {
-                    if (node.left.?.balanceFactor >= 1)
+                node.updateHeight();
+
+                if (node.balanceFactor() == -2) {
+                    if (node.left.?.balanceFactor() == 1)
                         node.left.?.rotateLeft();
                     node.rotateRight();
-                } else if (node.balanceFactor == 2) {
-                    if (node.right.?.balanceFactor <= -1)
+                } else if (node.balanceFactor() == 2) {
+                    if (node.right.?.balanceFactor() == -1)
                         node.right.?.rotateRight();
                     node.rotateLeft();
                 }
@@ -92,8 +86,8 @@ pub fn AvlTree(comptime T: type, comptime Context: type) type {
             new_left.right = new_root.left;
             new_root.left = new_left;
 
-            new_left.balanceFactor -= 1;
-            new_root.balanceFactor -= 1;
+            new_left.updateHeight();
+            new_root.updateHeight();
         }
 
         fn rotateRight(self: *Self) void {
@@ -105,8 +99,22 @@ pub fn AvlTree(comptime T: type, comptime Context: type) type {
             new_right.left = new_root.right;
             new_root.right = new_right;
 
-            new_right.balanceFactor += 1;
-            new_root.balanceFactor += 1;
+            new_right.updateHeight();
+            new_root.updateHeight();
+        }
+
+        fn updateHeight(self: *Self) void {
+            const l_height = if (self.left) |left| left.height else 0;
+            const r_height = if (self.right) |right| right.height else 0;
+
+            self.height = 1 + @max(l_height, r_height);
+        }
+
+        fn balanceFactor(self: *const Self) i3 {
+            const l_height = if (self.left) |left| left.height else 0;
+            const r_height = if (self.right) |right| right.height else 0;
+
+            return @intCast(r_height - l_height);
         }
     };
 }
@@ -172,8 +180,13 @@ test "small tree" {
     try root.insert(15);
 
     try std.testing.expectEqual(@as(i32, 15), root.value);
+    try std.testing.expectEqual(@as(i32, 0), root.balanceFactor());
+
     try std.testing.expectEqual(@as(i32, 4), root.left.?.value);
+    try std.testing.expectEqual(@as(i32, 0), root.left.?.balanceFactor());
+
     try std.testing.expectEqual(@as(i32, 20), root.right.?.value);
+    try std.testing.expectEqual(@as(i32, 0), root.right.?.balanceFactor());
 }
 
 test "medium tree" {
@@ -200,6 +213,7 @@ test "medium tree" {
     try std.testing.expectEqual(@as(i32, 9), root.value);
 
     try std.testing.expectEqual(@as(i32, 4), root.left.?.value);
+    try std.testing.expectEqual(@as(i32, -1), root.left.?.balanceFactor());
     try std.testing.expectEqual(@as(i32, 20), root.right.?.value);
 
     try std.testing.expectEqual(@as(i32, 3), root.left.?.left.?.value);
@@ -237,11 +251,14 @@ test "big tree" {
     try std.testing.expectEqual(@as(i32, 9), root.value);
 
     try std.testing.expectEqual(@as(i32, 4), root.left.?.value);
+    try std.testing.expectEqual(@as(i32, -1), root.left.?.balanceFactor());
     try std.testing.expectEqual(@as(i32, 20), root.right.?.value);
 
     try std.testing.expectEqual(@as(i32, 3), root.left.?.left.?.value);
+    try std.testing.expectEqual(@as(i32, -1), root.left.?.left.?.balanceFactor());
     try std.testing.expectEqual(@as(i32, 7), root.left.?.right.?.value);
     try std.testing.expectEqual(@as(i32, 11), root.right.?.left.?.value);
+    try std.testing.expectEqual(@as(i32, 1), root.right.?.left.?.balanceFactor());
     try std.testing.expectEqual(@as(i32, 26), root.right.?.right.?.value);
 
     try std.testing.expectEqual(@as(i32, 2), root.left.?.left.?.left.?.value);
